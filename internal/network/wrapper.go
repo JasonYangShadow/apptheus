@@ -33,7 +33,7 @@ type ServerOption struct {
 
 type WrappedInstance struct {
 	*parser.ContainerInfo
-	*monitor.MonitorInstance
+	*monitor.Instance
 	net.Conn
 }
 
@@ -79,21 +79,21 @@ func (l *WrappedListener) Accept() (net.Conn, error) {
 		FullPath: link,
 		Pid:      uint64(pid),
 		Exe:      exe,
-		Id:       fmt.Sprintf("%s_%d", exe, pid),
+		ID:       fmt.Sprintf("%s_%d", exe, pid),
 	}
 	instance := monitor.New(l.Option.Interval)
 
 	// save the container info for further usage
-	l.ContainerMap[container.Id] = &WrappedInstance{
-		ContainerInfo:   container,
-		MonitorInstance: instance,
-		Conn:            conn,
+	l.ContainerMap[container.ID] = &WrappedInstance{
+		ContainerInfo: container,
+		Instance:      instance,
+		Conn:          conn,
 	}
 
 	// fire monitor thread
 	go instance.Start(container, l.Option.MetricStore, l.Option.Logger)
 
-	level.Info(l.Option.Logger).Log("msg", "New connection established", "container id", container.Id, "container pid", container.Pid, "container full path", container.FullPath)
+	level.Info(l.Option.Logger).Log("msg", "New connection established", "container id", container.ID, "container pid", container.Pid, "container full path", container.FullPath)
 
 	return conn, nil
 }

@@ -1,4 +1,5 @@
-//nolint:goheader
+// SPDX-FileCopyrightText: Copyright (c) 2023, CIQ, Inc. All rights reserved
+// SPDX-License-Identifier: Apache-2.0
 
 // Copyright 2014 The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,9 +14,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//nolint:testpackage
 package storage
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -1010,7 +1013,7 @@ func TestRejectTimestamps(t *testing.T) {
 	})
 	var err error
 	for err = range errCh {
-		if err != errTimestamp {
+		if !errors.Is(err, errTimestamp) {
 			t.Errorf("Expected error %q, got %q.", errTimestamp, err)
 		}
 	}
@@ -1045,9 +1048,7 @@ func TestRejectInconsistentPush(t *testing.T) {
 		MetricFamilies: testutil.MetricFamiliesMap(mfgc),
 		Done:           errCh,
 	})
-	var err error
-	for err = range errCh {
-	}
+	err := <-errCh
 	if err == nil {
 		t.Error("Expected error pushing inconsistent go_goroutines metric.")
 	}
@@ -1091,9 +1092,7 @@ func TestRejectInconsistentPush(t *testing.T) {
 		MetricFamilies: testutil.MetricFamiliesMap(mf1b),
 		Done:           errCh,
 	})
-	err = nil
-	for err = range errCh {
-	}
+	err = <-errCh
 	if err == nil {
 		t.Error("Expected error pushing duplicate mf1 metric.")
 	}
@@ -1212,7 +1211,7 @@ func TestReplace(t *testing.T) {
 	})
 	var err error
 	for err = range errCh {
-		if err != errTimestamp {
+		if !errors.Is(err, errTimestamp) {
 			t.Errorf("Expected error %q, got %q.", errTimestamp, err)
 		}
 	}
@@ -1284,7 +1283,7 @@ func TestReplace(t *testing.T) {
 	})
 	err = nil
 	for err = range errCh {
-		if err != errTimestamp {
+		if !errors.Is(err, errTimestamp) {
 			t.Errorf("Expected error %q, got %q.", errTimestamp, err)
 		}
 	}

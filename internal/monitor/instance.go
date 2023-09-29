@@ -15,7 +15,7 @@ import (
 	"github.com/jasonyangshadow/apptheus/storage"
 )
 
-type MonitorInstance struct {
+type Instance struct {
 	*cgroup.CGroup
 	ticker *time.Ticker
 
@@ -23,18 +23,18 @@ type MonitorInstance struct {
 	Done  chan struct{}
 }
 
-func New(ticker *time.Ticker) *MonitorInstance {
-	ins := &MonitorInstance{}
+func New(ticker *time.Ticker) *Instance {
+	ins := &Instance{}
 	ins.ticker = ticker
 	ins.ErrCh = make(chan error, 1)
 	ins.Done = make(chan struct{}, 1)
 	return ins
 }
 
-func (i *MonitorInstance) Start(container *parser.ContainerInfo, ms storage.MetricStore, logger log.Logger) {
-	c, err := cgroup.NewCGroup(container.Id)
+func (i *Instance) Start(container *parser.ContainerInfo, ms storage.MetricStore, logger log.Logger) {
+	c, err := cgroup.NewCGroup(container.ID)
 	if err != nil {
-		level.Error(logger).Log("msg", "while validating cgroup info", "err", err, "container id", container.Id)
+		level.Error(logger).Log("msg", "while validating cgroup info", "err", err, "container id", container.ID)
 		i.ErrCh <- err
 		return
 	}
@@ -42,7 +42,7 @@ func (i *MonitorInstance) Start(container *parser.ContainerInfo, ms storage.Metr
 
 	err = i.Apply(int(container.Pid))
 	if err != nil {
-		level.Error(logger).Log("msg", "while adding proc to cgroup info", "err", err, "container id", container.Id)
+		level.Error(logger).Log("msg", "while adding proc to cgroup info", "err", err, "container id", container.ID)
 		i.ErrCh <- err
 		return
 	}
@@ -51,24 +51,24 @@ func (i *MonitorInstance) Start(container *parser.ContainerInfo, ms storage.Metr
 
 	var buffer bytes.Buffer
 	labels := make(map[string]string)
-	labels["job"] = container.Id
+	labels["job"] = container.ID
 	labels["path"] = container.FullPath
 	labels["exe"] = container.Exe
 	labels["pid"] = strconv.FormatUint(container.Pid, 10)
-	labels["id"] = container.Id
+	labels["id"] = container.ID
 
 	for {
 		for range i.ticker.C {
 			ok, err := i.HasProcess()
 			if err != nil {
-				level.Error(logger).Log("msg", "while verifying if there are any processes inside current cgroup", "err", err, "container id", container.Id)
+				level.Error(logger).Log("msg", "while verifying if there are any processes inside current cgroup", "err", err, "container id", container.ID)
 				i.ErrCh <- err
 				return
 			}
 
 			// No processes left in the current cgroup
 			if !ok {
-				level.Info(logger).Log("msg", "no processes in current cgroup, exit", "container id", container.Id)
+				level.Info(logger).Log("msg", "no processes in current cgroup, exit", "container id", container.ID)
 				i.Done <- struct{}{}
 				return
 			}
@@ -76,7 +76,7 @@ func (i *MonitorInstance) Start(container *parser.ContainerInfo, ms storage.Metr
 			buffer.Reset()
 			buffer, err := i.Marshal(&buffer)
 			if err != nil {
-				level.Error(logger).Log("msg", "while marshing the stat info", "err", err, "container id", container.Id)
+				level.Error(logger).Log("msg", "while marshing the stat info", "err", err, "container id", container.ID)
 				i.ErrCh <- err
 				return
 			}
@@ -85,7 +85,7 @@ func (i *MonitorInstance) Start(container *parser.ContainerInfo, ms storage.Metr
 			// send request to pushgate
 			err = push.Push(ms, data, labels)
 			if err != nil {
-				level.Error(logger).Log("msg", "while pushing data to pushgateway", "err", err, "container id", container.Id)
+				level.Error(logger).Log("msg", "while pushing data to pushgateway", "err", err, "container id", container.ID)
 				i.ErrCh <- err
 				return
 			}

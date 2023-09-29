@@ -130,7 +130,7 @@ func main() {
 	verifyRoute := route.New()
 	vmux := http.NewServeMux()
 	vmux.Handle("/", decodeRequest(verifyRoute))
-	verifyServer := &http.Server{Handler: vmux}
+	verifyServer := &http.Server{Handler: vmux, ReadHeaderTimeout: time.Second}
 
 	// create necessary parent folder for socket path
 	parentFolder := path.Dir(*socketPath)
@@ -163,7 +163,7 @@ func main() {
 		}).ServeHTTP,
 	)
 	mmux.Handle("/", decodeRequest(metricsRoute))
-	metricServer := &http.Server{Handler: mmux}
+	metricServer := &http.Server{Handler: mmux, ReadHeaderTimeout: time.Second}
 
 	metricOption := &network.ServerOption{
 		Server:      metricServer,
@@ -288,7 +288,7 @@ func startVerificationServer(option *network.ServerOption) {
 	go func() {
 		err = web.Serve(&listener, option.Server, option.WebConfig, option.Logger)
 		if err != nil {
-			if err == http.ErrServerClosed {
+			if errors.Is(err, http.ErrServerClosed) {
 				level.Info(option.Logger).Log("msg", "Verification server stopped")
 			} else {
 				level.Error(option.Logger).Log("msg", "Verification server stopped with error", "err", err)
@@ -329,7 +329,7 @@ func startMetricsServer(option *network.ServerOption) {
 	level.Info(option.Logger).Log("msg", "Start metrics server")
 	err := web.ListenAndServe(option.Server, option.WebConfig, option.Logger)
 	if err != nil {
-		if err == http.ErrServerClosed {
+		if errors.Is(err, http.ErrServerClosed) {
 			level.Info(option.Logger).Log("msg", "Metrics server stopped")
 		} else {
 			level.Error(option.Logger).Log("msg", "Metrics server stopped", "err", err)

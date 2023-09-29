@@ -44,22 +44,13 @@ linters:
     - promlinter 
     - nonamedreturns
     - nosnakecase 
-    - errcheck 
     - gochecknoinits
     - goconst
     - goheader
-    - gosec
-    - errorlint
-    - gosimple
-    - noctx
     - paralleltest
-    - testpackage
+    - errcheck
     - thelper
     - usestdlibvars
-    - revive
-    - stylecheck
-    - unused
-    - typecheck
 
 linters-settings:
   goheader:
