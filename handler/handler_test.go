@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package handler
+package handler_test
 
 import (
 	"bytes"
@@ -34,6 +34,8 @@ import (
 
 	dto "github.com/prometheus/client_model/go"
 
+	"github.com/jasonyangshadow/apptheus/handler"
+	"github.com/jasonyangshadow/apptheus/internal/util"
 	"github.com/jasonyangshadow/apptheus/storage"
 )
 
@@ -95,17 +97,17 @@ func TestPush(t *testing.T) {
 	mms := MockMetricStore{}
 	mmsWithErr := MockMetricStore{err: errors.New("testerror")}
 	// false, true, false → no replace, check consistency, no base64 encoding.
-	handler := Push(&mms, false, true, false, logger)
-	handlerWithErr := Push(&mmsWithErr, false, true, false, logger)
-	handlerBase64 := Push(&mms, false, true, true, logger)
-	req, err := http.NewRequest("POST", "http://example.org/", &bytes.Buffer{})
+	h := handler.Push(&mms, false, true, false, logger)
+	handlerWithErr := handler.Push(&mmsWithErr, false, true, false, logger)
+	handlerBase64 := handler.Push(&mms, false, true, true, logger)
+	req, err := http.NewRequestWithContext(context.Background(), "POST", "http://example.org/", &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// No job name.
 	w := httptest.NewRecorder()
-	handler(w, req)
+	h(w, req)
 	if expected, got := http.StatusBadRequest, w.Code; expected != got {
 		t.Errorf("Wanted status code %v, got %v.", expected, got)
 	}
@@ -120,7 +122,7 @@ func TestPush(t *testing.T) {
 		"job": "testjob",
 	}
 
-	handler(w, req.WithContext(ctxWithParams(params, req)))
+	h(w, req.WithContext(ctxWithParams(params, req)))
 	if expected, got := http.StatusOK, w.Code; expected != got {
 		t.Errorf("Wanted status code %v, got %v.", expected, got)
 	}
@@ -136,7 +138,8 @@ func TestPush(t *testing.T) {
 
 	// With job name and instance name and invalid text content.
 	mms.lastWriteRequest = storage.WriteRequest{}
-	req, err = http.NewRequest(
+	req, err = http.NewRequestWithContext(
+		context.Background(),
 		"POST", "http://example.org/",
 		bytes.NewBufferString("blablabla\n"),
 	)
@@ -149,7 +152,7 @@ func TestPush(t *testing.T) {
 		"instance": "testinstance",
 	}
 
-	handler(w, req.WithContext(ctxWithParams(params, req)))
+	h(w, req.WithContext(ctxWithParams(params, req)))
 	if expected, got := http.StatusBadRequest, w.Code; expected != got {
 		t.Errorf("Wanted status code %v, got %v.", expected, got)
 	}
@@ -159,7 +162,8 @@ func TestPush(t *testing.T) {
 
 	// With job name and instance name and text content.
 	mms.lastWriteRequest = storage.WriteRequest{}
-	req, err = http.NewRequest(
+	req, err = http.NewRequestWithContext(
+		context.Background(),
 		"POST", "http://example.org/",
 		bytes.NewBufferString("some_metric 3.14\nanother_metric{instance=\"testinstance\",job=\"testjob\"} 42\n"),
 	)
@@ -173,7 +177,7 @@ func TestPush(t *testing.T) {
 		"labels": "/instance/testinstance",
 	}
 
-	handler(w, req.WithContext(ctxWithParams(params, req)))
+	h(w, req.WithContext(ctxWithParams(params, req)))
 	if expected, got := http.StatusOK, w.Code; expected != got {
 		t.Errorf("Wanted status code %v, got %v.", expected, got)
 	}
@@ -191,7 +195,8 @@ func TestPush(t *testing.T) {
 	verifyMetricFamily(t, `name:"another_metric" type:UNTYPED metric:{label:{name:"instance" value:"testinstance"} label:{name:"job" value:"testjob"} untyped:{value:42}}`, mms.lastWriteRequest.MetricFamilies["another_metric"])
 
 	// With job name and instance name and text content, storage returns error.
-	req, err = http.NewRequest(
+	req, err = http.NewRequestWithContext(
+		context.Background(),
 		"POST", "http://example.org/",
 		bytes.NewBufferString("some_metric 3.14\nanother_metric{instance=\"testinstance\",job=\"testjob\"} 42\n"),
 	)
@@ -222,7 +227,8 @@ func TestPush(t *testing.T) {
 
 	// With base64-encoded job name and instance name and text content.
 	mms.lastWriteRequest = storage.WriteRequest{}
-	req, err = http.NewRequest(
+	req, err = http.NewRequestWithContext(
+		context.Background(),
 		"POST", "http://example.org/",
 		bytes.NewBufferString("some_metric 3.14\nanother_metric{instance=\"testinstance\",job=\"testjob\"} 42\n"),
 	)
@@ -254,7 +260,8 @@ func TestPush(t *testing.T) {
 
 	// With job name and no instance name and text content.
 	mms.lastWriteRequest = storage.WriteRequest{}
-	req, err = http.NewRequest(
+	req, err = http.NewRequestWithContext(
+		context.Background(),
 		"POST", "http://example.org/",
 		bytes.NewBufferString("some_metric 3.14\nanother_metric{instance=\"testinstance\",job=\"testjob\"} 42\n"),
 	)
@@ -265,7 +272,7 @@ func TestPush(t *testing.T) {
 	params = map[string]string{
 		"job": "testjob",
 	}
-	handler(w, req.WithContext(ctxWithParams(params, req)))
+	h(w, req.WithContext(ctxWithParams(params, req)))
 	if expected, got := http.StatusOK, w.Code; expected != got {
 		t.Errorf("Wanted status code %v, got %v.", expected, got)
 	}
@@ -284,7 +291,8 @@ func TestPush(t *testing.T) {
 
 	// With job name and instance name and timestamp specified.
 	mms.lastWriteRequest = storage.WriteRequest{}
-	req, err = http.NewRequest(
+	req, err = http.NewRequestWithContext(
+		context.Background(),
 		"POST", "http://example.org/",
 		bytes.NewBufferString("a 1\nb 1 1000\n"),
 	)
@@ -297,7 +305,7 @@ func TestPush(t *testing.T) {
 		"labels": "/instance/testinstance",
 	}
 
-	handler(w, req.WithContext(ctxWithParams(params, req)))
+	h(w, req.WithContext(ctxWithParams(params, req)))
 	// Note that a real storage shourd reject pushes with timestamps. Here
 	// we only make sure it gets through. Rejection is tested in the storage
 	// package.
@@ -345,7 +353,8 @@ func TestPush(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req, err = http.NewRequest(
+	req, err = http.NewRequestWithContext(
+		context.Background(),
 		"POST", "http://example.org/", buf,
 	)
 	if err != nil {
@@ -357,7 +366,7 @@ func TestPush(t *testing.T) {
 		"job":    "testjob",
 		"labels": "/instance/testinstance",
 	}
-	handler(w, req.WithContext(ctxWithParams(params, req)))
+	h(w, req.WithContext(ctxWithParams(params, req)))
 	if expected, got := http.StatusOK, w.Code; expected != got {
 		t.Errorf("Wanted status code %v, got %v.", expected, got)
 	}
@@ -378,8 +387,8 @@ func TestPush(t *testing.T) {
 
 func TestDelete(t *testing.T) {
 	mms := MockMetricStore{}
-	handler := Delete(&mms, false, logger)
-	handlerBase64 := Delete(&mms, true, logger)
+	h := handler.Delete(&mms, false, logger)
+	handlerBase64 := handler.Delete(&mms, true, logger)
 	req := &http.Request{}
 	var params map[string]string
 
@@ -387,7 +396,7 @@ func TestDelete(t *testing.T) {
 	mms.lastWriteRequest = storage.WriteRequest{}
 	w := httptest.NewRecorder()
 	params = map[string]string{}
-	handler(w, req.WithContext(ctxWithParams(params, req)))
+	h(w, req.WithContext(ctxWithParams(params, req)))
 	if expected, got := http.StatusBadRequest, w.Code; expected != got {
 		t.Errorf("Wanted status code %v, got %v.", expected, got)
 	}
@@ -403,7 +412,7 @@ func TestDelete(t *testing.T) {
 		"job": "testjob",
 	}
 
-	handler(w, req.WithContext(ctxWithParams(params, req)))
+	h(w, req.WithContext(ctxWithParams(params, req)))
 	if expected, got := http.StatusAccepted, w.Code; expected != got {
 		t.Errorf("Wanted status code %v, got %v.", expected, got)
 	}
@@ -426,7 +435,7 @@ func TestDelete(t *testing.T) {
 		"labels": "/instance/testinstance",
 	}
 
-	handler(w, req.WithContext(ctxWithParams(params, req)))
+	h(w, req.WithContext(ctxWithParams(params, req)))
 	if expected, got := http.StatusAccepted, w.Code; expected != got {
 		t.Errorf("Wanted status code %v, got %v.", expected, got)
 	}
@@ -518,7 +527,7 @@ func TestSplitLabels(t *testing.T) {
 
 	for name, scenario := range scenarios {
 		t.Run(name, func(t *testing.T) {
-			parsed, err := splitLabels(scenario.input)
+			parsed, err := util.SplitLabels(scenario.input)
 			if err != nil {
 				if scenario.expectError {
 					return // All good.
@@ -554,11 +563,11 @@ func TestWipeMetricStore(t *testing.T) {
 	mms := MockMetricStore{metricGroups: mgs}
 
 	// Wipe handler should return 202 and delete all metrics.
-	wipeHandler := WipeMetricStore(&mms, logger)
+	wipeHandler := handler.WipeMetricStore(&mms, logger)
 	w := httptest.NewRecorder()
 	// Then handler is routed to the handler based on verb and path in main.go
 	// therefore (and for now) we use the request to only record the returned status code.
-	req, err := http.NewRequest("PUT", "http://example.org", &bytes.Buffer{})
+	req, err := http.NewRequestWithContext(context.Background(), "PUT", "http://example.org", &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -602,7 +611,7 @@ func verifyMetricFamily(t *testing.T, expText string, got *dto.MetricFamily) {
 		t.Errorf("unexpected error marshaling MetricFamily %v", exp)
 	}
 
-	if bytes.Compare(expProto, gotProto) != 0 {
+	if !bytes.Equal(expProto, gotProto) {
 		t.Errorf("Wanted metric family %v, got %v.", exp, got)
 	}
 }

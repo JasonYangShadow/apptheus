@@ -24,6 +24,7 @@ import (
 	"github.com/go-kit/log/level"
 	"github.com/prometheus/common/route"
 
+	"github.com/jasonyangshadow/apptheus/internal/util"
 	"github.com/jasonyangshadow/apptheus/storage"
 )
 
@@ -37,14 +38,14 @@ func Delete(ms storage.MetricStore, jobBase64Encoded bool, logger log.Logger) fu
 			job := route.Param(r.Context(), "job")
 			if jobBase64Encoded {
 				var err error
-				if job, err = decodeBase64(job); err != nil {
+				if job, err = util.DecodeBase64(job); err != nil {
 					http.Error(w, fmt.Sprintf("invalid base64 encoding in job name %q: %v", job, err), http.StatusBadRequest)
 					level.Debug(logger).Log("msg", "invalid base64 encoding in job name", "job", job, "err", err.Error())
 					return
 				}
 			}
 			labelsString := route.Param(r.Context(), "labels")
-			labels, err := splitLabels(labelsString)
+			labels, err := util.SplitLabels(labelsString)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				level.Debug(logger).Log("msg", "failed to parse URL", "url", labelsString, "err", err.Error())

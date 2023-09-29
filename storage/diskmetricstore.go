@@ -1,4 +1,5 @@
-//nolint:goheader
+// SPDX-FileCopyrightText: Copyright (c) 2023, CIQ, Inc. All rights reserved
+// SPDX-License-Identifier: Apache-2.0
 
 // Copyright 2014 The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -442,10 +443,8 @@ func (dms *DiskMetricStore) restore() error {
 	}
 	defer f.Close()
 	d := gob.NewDecoder(f)
-	if err := d.Decode(&dms.metricGroups); err != nil {
-		return err
-	}
-	return nil
+
+	return d.Decode(&dms.metricGroups)
 }
 
 func copyMetricFamily(mf *dto.MetricFamily) *dto.MetricFamily {
