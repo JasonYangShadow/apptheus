@@ -53,6 +53,10 @@ import (
 	"toolman.org/net/peercred"
 )
 
+const (
+	VERSION = "0.1.0"
+)
+
 func init() {
 	prometheus.MustRegister(version.NewCollector("apptheus"))
 }
@@ -79,19 +83,14 @@ func main() {
 		monitorInterval     = app.Flag("monitor.inverval", "The internval for sending system status.").Default("0.5s").Duration()
 	)
 	promlogflag.AddFlags(app, &promlogConfig)
+	version.Version = VERSION
 	app.Version(version.Print("apptheus"))
 	app.HelpFlag.Short('h')
 	kingpin.MustParse(app.Parse(os.Args[1:]))
 	logger := promlog.New(&promlogConfig)
 
 	*routePrefix = computeRoutePrefix(*routePrefix, *externalURL)
-	externalPathPrefix := computeRoutePrefix("", *externalURL)
-
 	level.Info(logger).Log("msg", "starting apptheus", "version", version.Info())
-	level.Info(logger).Log("build_context", version.BuildContext())
-	level.Debug(logger).Log("msg", "external URL", "url", *externalURL)
-	level.Debug(logger).Log("msg", "path prefix used externally", "path", externalPathPrefix)
-	level.Debug(logger).Log("msg", "path prefix for internal routing", "path", *routePrefix)
 
 	// verify the caller is root or not
 	isRoot, err := util.IsRoot()

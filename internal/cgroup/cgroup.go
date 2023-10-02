@@ -19,7 +19,7 @@ type CGroup struct {
 }
 
 func NewCGroup(path string) (*CGroup, error) {
-	cg := &configs.Cgroup{}
+	cg := &configs.Cgroup{Resources: &configs.Resources{}}
 	cg.Path = fmt.Sprintf("/%s/%s", gateway, path)
 	mgr, err := manager.New(cg)
 	if err != nil {
@@ -34,28 +34,14 @@ func (c *CGroup) HasProcess() (bool, error) {
 }
 
 func (c *CGroup) CreateStats() ([]parser.StatFunc, error) {
-	stats, err := c.Manager.GetStats()
+	stat, err := c.Manager.GetStats()
 	if err != nil {
 		return nil, err
 	}
 
-	return []parser.StatFunc{
-		func() (string, uint64) {
-			return "cpu_usage", stats.CpuStats.CpuUsage.TotalUsage
-		},
-		func() (string, uint64) {
-			return "memory_usage", stats.MemoryStats.Usage.Usage
-		},
-		func() (string, uint64) {
-			return "memory_swap_usage", stats.MemoryStats.SwapUsage.Usage
-		},
-		func() (string, uint64) {
-			return "memory_kernel_usage", stats.MemoryStats.KernelUsage.Usage
-		},
-		func() (string, uint64) {
-			return "pid_usage", stats.PidsStats.Current
-		},
-	}, nil
+	statManager := &parser.StatManager{Stats: stat}
+	statManager.WithCPU().WithMemory().WithMemorySwap().WithMemoryKernel().WithPid()
+	return statManager.All(), nil
 }
 
 func (c *CGroup) Marshal(buffer *bytes.Buffer) (*bytes.Buffer, error) {
@@ -67,7 +53,7 @@ func (c *CGroup) Marshal(buffer *bytes.Buffer) (*bytes.Buffer, error) {
 	// write stats
 	for _, stat := range stats {
 		key, val := stat()
-		fmt.Fprintf(buffer, "%s %d\n", key, val)
+		fmt.Fprintf(buffer, "%s %f\n", key, val)
 	}
 
 	return buffer, nil
