@@ -18,9 +18,8 @@ type StatManager struct {
 	*cgroups.Stats
 }
 
-func (s *StatManager) add(fc StatFunc) *StatManager {
+func (s *StatManager) add(fc StatFunc) {
 	s.funcs = append(s.funcs, fc)
-	return s
 }
 
 func (s *StatManager) WithCPU() *StatManager {
