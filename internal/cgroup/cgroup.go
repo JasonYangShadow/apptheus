@@ -19,7 +19,7 @@ type CGroup struct {
 }
 
 func NewCGroup(path string) (*CGroup, error) {
-	cg := &configs.Cgroup{}
+	cg := &configs.Cgroup{Resources: &configs.Resources{}}
 	cg.Path = fmt.Sprintf("/%s/%s", gateway, path)
 	mgr, err := manager.New(cg)
 	if err != nil {
