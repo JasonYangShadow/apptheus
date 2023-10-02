@@ -6,15 +6,15 @@ profile: cover.out
 threshold:
   # (optional; default 0) 
   # The minimum coverage that each file should have
-  file: 50
+  file: 80
 
   # (optional; default 0) 
   # The minimum coverage that each package should have
-  package: 50
+  package: 80
 
   # (optional; default 0) 
   # The minimum total coverage project should have
-  total: 50
+  total: 80
 
 #override:
   # Increase coverage threshold to 100% for `foo` package (default is 80, as configured above)

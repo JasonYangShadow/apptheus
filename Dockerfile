@@ -1,16 +1,16 @@
 ARG ARCH="amd64"
 ARG OS="linux"
 FROM quay.io/prometheus/busybox-${OS}-${ARCH}:latest
-LABEL maintainer="The Prometheus Authors <prometheus-developers@googlegroups.com>"
+LABEL maintainer="The Apptheus Contributors"
 
 ARG ARCH="amd64"
 ARG OS="linux"
-COPY --chown=nobody:nobody .build/${OS}-${ARCH}/pushgateway /bin/pushgateway
+COPY --chown=nobody:nobody apptheus /bin/apptheus
 
 EXPOSE 9091
-RUN mkdir -p /pushgateway && chown nobody:nobody /pushgateway
-WORKDIR /pushgateway
+RUN mkdir -p /apptheus && chown nobody:nobody /apptheus
+WORKDIR /apptheus
 
 USER 65534
 
-ENTRYPOINT [ "/bin/pushgateway" ]
+ENTRYPOINT [ "/bin/apptheus" ]

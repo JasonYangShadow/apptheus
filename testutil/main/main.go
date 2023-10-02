@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	conn, err := net.Dial("unix", "/tmp/pushgateway/socket")
+	conn, err := net.Dial("unix", "/run/apptheus/gateway.sock")
 	if err != nil {
 		fmt.Printf("connection error: %v", err)
 		os.Exit(-1)

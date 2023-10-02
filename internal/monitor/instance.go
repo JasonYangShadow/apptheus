@@ -4,7 +4,6 @@ package monitor
 
 import (
 	"bytes"
-	"strconv"
 	"time"
 
 	"github.com/go-kit/log"
@@ -52,10 +51,6 @@ func (i *Instance) Start(container *parser.ContainerInfo, ms storage.MetricStore
 	var buffer bytes.Buffer
 	labels := make(map[string]string)
 	labels["job"] = container.ID
-	labels["path"] = container.FullPath
-	labels["exe"] = container.Exe
-	labels["pid"] = strconv.FormatUint(container.Pid, 10)
-	labels["id"] = container.ID
 
 	for {
 		for range i.ticker.C {
@@ -69,6 +64,11 @@ func (i *Instance) Start(container *parser.ContainerInfo, ms storage.MetricStore
 			// No processes left in the current cgroup
 			if !ok {
 				level.Info(logger).Log("msg", "no processes in current cgroup, exit", "container id", container.ID)
+				// also need to remove the related job metrics
+				ms.SubmitWriteRequest(storage.WriteRequest{
+					Labels:    labels,
+					Timestamp: time.Now(),
+				})
 				i.Done <- struct{}{}
 				return
 			}
