@@ -25,3 +25,5 @@ GET /metrics
 
 ### Apptainer uses Apptheus
 ![workflow](doc/apptainer.png)
+
+<video src="doc/apptainer.mp4"></video>
