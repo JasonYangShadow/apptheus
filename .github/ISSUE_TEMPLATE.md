@@ -1,3 +1,11 @@
+<!--
+
+	Note that we use GitHub issues for bugs and (uncontroversial) feature
+	requests. For questions and discussions, please use GitHub discussions or
+	any of the other community channels: https://prometheus.io/community/
+
+-->
+
 ## Feature request
 **Use case. Why is this important?**
 
@@ -16,15 +24,15 @@
 
 		Insert output of `uname -srm` here.
 
-* Apptheus version:
+* Pushgateway version:
 
-		Insert output of `apptheus--version` here.
+		Insert output of `pushgateway --version` here.
 
-* Apptheus command line:
+* Pushgateway command line:
 
 		Insert full command line.
 
 * Logs:
 ```
-Insert Apptheus logs relevant to the issue here.
+Insert Pushgateway logs relevant to the issue here.
 ```

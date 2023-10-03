@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2023, CIQ, Inc. All rights reserved
-// SPDX-License-Identifier: Apache-2.0
-
 // Copyright 2014 The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,11 +11,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//nolint:testpackage
 package storage
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -35,7 +30,7 @@ import (
 
 	dto "github.com/prometheus/client_model/go"
 
-	"github.com/jasonyangshadow/apptheus/testutil"
+	"github.com/prometheus/pushgateway/testutil"
 )
 
 var (
@@ -1013,7 +1008,7 @@ func TestRejectTimestamps(t *testing.T) {
 	})
 	var err error
 	for err = range errCh {
-		if !errors.Is(err, errTimestamp) {
+		if err != errTimestamp {
 			t.Errorf("Expected error %q, got %q.", errTimestamp, err)
 		}
 	}
@@ -1048,7 +1043,9 @@ func TestRejectInconsistentPush(t *testing.T) {
 		MetricFamilies: testutil.MetricFamiliesMap(mfgc),
 		Done:           errCh,
 	})
-	err := <-errCh
+	var err error
+	for err = range errCh {
+	}
 	if err == nil {
 		t.Error("Expected error pushing inconsistent go_goroutines metric.")
 	}
@@ -1092,7 +1089,9 @@ func TestRejectInconsistentPush(t *testing.T) {
 		MetricFamilies: testutil.MetricFamiliesMap(mf1b),
 		Done:           errCh,
 	})
-	err = <-errCh
+	err = nil
+	for err = range errCh {
+	}
 	if err == nil {
 		t.Error("Expected error pushing duplicate mf1 metric.")
 	}
@@ -1191,6 +1190,7 @@ func TestSanitizeLabels(t *testing.T) {
 	); err != nil {
 		t.Error(err)
 	}
+
 }
 
 func TestReplace(t *testing.T) {
@@ -1211,7 +1211,7 @@ func TestReplace(t *testing.T) {
 	})
 	var err error
 	for err = range errCh {
-		if !errors.Is(err, errTimestamp) {
+		if err != errTimestamp {
 			t.Errorf("Expected error %q, got %q.", errTimestamp, err)
 		}
 	}
@@ -1283,7 +1283,7 @@ func TestReplace(t *testing.T) {
 	})
 	err = nil
 	for err = range errCh {
-		if !errors.Is(err, errTimestamp) {
+		if err != errTimestamp {
 			t.Errorf("Expected error %q, got %q.", errTimestamp, err)
 		}
 	}
@@ -1466,6 +1466,7 @@ func TestHelpStringFix(t *testing.T) {
 	if err := dms.Shutdown(); err != nil {
 		t.Fatal(err)
 	}
+
 }
 
 func TestGroupingKeyForLabels(t *testing.T) {
