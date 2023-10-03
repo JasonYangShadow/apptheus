@@ -1,1 +1,0 @@
-# Reporting a security issue
