@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (c) 2023, CIQ, Inc. All rights reserved
+// SPDX-License-Identifier: Apache-2.0
+
 // Copyright 2014 The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,10 +19,10 @@ package main
 import (
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/pprof"
 	"net/url"
 	"os"
 	"os/signal"
@@ -27,6 +30,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/alecthomas/kingpin/v2"
 	"github.com/go-kit/log"
@@ -43,14 +47,18 @@ import (
 	dto "github.com/prometheus/client_model/go"
 	promlogflag "github.com/prometheus/common/promlog/flag"
 
-	api_v1 "github.com/prometheus/pushgateway/api/v1"
-	"github.com/prometheus/pushgateway/asset"
-	"github.com/prometheus/pushgateway/handler"
-	"github.com/prometheus/pushgateway/storage"
+	"github.com/jasonyangshadow/apptheus/internal/network"
+	"github.com/jasonyangshadow/apptheus/internal/util"
+	"github.com/jasonyangshadow/apptheus/storage"
+	"toolman.org/net/peercred"
+)
+
+const (
+	VERSION = "0.1.0"
 )
 
 func init() {
-	prometheus.MustRegister(version.NewCollector("pushgateway"))
+	prometheus.MustRegister(version.NewCollector("apptheus"))
 }
 
 // logFunc in an adaptor to plug gokit logging into promhttp.HandlerOpts.
@@ -62,32 +70,39 @@ func (lf logFunc) Println(v ...interface{}) {
 
 func main() {
 	var (
-		app                 = kingpin.New(filepath.Base(os.Args[0]), "The Pushgateway")
+		app                 = kingpin.New(filepath.Base(os.Args[0]), "The Apptheus")
 		webConfig           = webflag.AddFlags(app, ":9091")
 		metricsPath         = app.Flag("web.telemetry-path", "Path under which to expose metrics.").Default("/metrics").String()
-		externalURL         = app.Flag("web.external-url", "The URL under which the Pushgateway is externally reachable.").Default("").URL()
+		externalURL         = app.Flag("web.external-url", "The URL under which the Apptheus is externally reachable.").Default("").URL()
 		routePrefix         = app.Flag("web.route-prefix", "Prefix for the internal routes of web endpoints. Defaults to the path of --web.external-url.").Default("").String()
-		enableLifeCycle     = app.Flag("web.enable-lifecycle", "Enable shutdown via HTTP request.").Default("false").Bool()
-		enableAdminAPI      = app.Flag("web.enable-admin-api", "Enable API endpoints for admin control actions.").Default("false").Bool()
 		persistenceFile     = app.Flag("persistence.file", "File to persist metrics. If empty, metrics are only kept in memory.").Default("").String()
 		persistenceInterval = app.Flag("persistence.interval", "The minimum interval at which to write out the persistence file.").Default("5m").Duration()
-		pushUnchecked       = app.Flag("push.disable-consistency-check", "Do not check consistency of pushed metrics. DANGEROUS.").Default("false").Bool()
 		promlogConfig       = promlog.Config{}
+		socketPath          = app.Flag("socket.path", "Socket path for communication.").Default("/run/apptheus/gateway.sock").String()
+		trustedPath         = app.Flag("trust.path", "Multiple trusted apptainer starter paths, use ';' to separate multiple entries").Default("").String()
+		monitorInterval     = app.Flag("monitor.inverval", "The internval for sending system status.").Default("0.5s").Duration()
 	)
 	promlogflag.AddFlags(app, &promlogConfig)
-	app.Version(version.Print("pushgateway"))
+	version.Version = VERSION
+	app.Version(version.Print("apptheus"))
 	app.HelpFlag.Short('h')
 	kingpin.MustParse(app.Parse(os.Args[1:]))
 	logger := promlog.New(&promlogConfig)
 
 	*routePrefix = computeRoutePrefix(*routePrefix, *externalURL)
-	externalPathPrefix := computeRoutePrefix("", *externalURL)
+	level.Info(logger).Log("msg", "starting apptheus", "version", version.Info())
 
-	level.Info(logger).Log("msg", "starting pushgateway", "version", version.Info())
-	level.Info(logger).Log("build_context", version.BuildContext())
-	level.Debug(logger).Log("msg", "external URL", "url", *externalURL)
-	level.Debug(logger).Log("msg", "path prefix used externally", "path", externalPathPrefix)
-	level.Debug(logger).Log("msg", "path prefix for internal routing", "path", *routePrefix)
+	// verify the caller is root or not
+	isRoot, err := util.IsRoot()
+	if err != nil {
+		level.Error(logger).Log("msg", "Could not verify the caller", "err", err)
+		os.Exit(-1)
+	}
+
+	if !isRoot {
+		level.Info(logger).Log("msg", "Please launch using root user", "version", version.Info())
+		os.Exit(-1)
+	}
 
 	// flags is used to show command line flags on the status page.
 	// Kingpin default flags are excluded as they would be confusing.
@@ -107,101 +122,60 @@ func main() {
 		prometheus.GathererFunc(func() ([]*dto.MetricFamily, error) { return ms.GetMetricFamilies(), nil }),
 	}
 
-	r := route.New()
-	r.Get(*routePrefix+"/-/healthy", handler.Healthy(ms).ServeHTTP)
-	r.Get(*routePrefix+"/-/ready", handler.Ready(ms).ServeHTTP)
-	r.Get(
+	// server error channel
+	errCh := make(chan error, 2)
+
+	// verification server route
+	verifyRoute := route.New()
+	vmux := http.NewServeMux()
+	vmux.Handle("/", decodeRequest(verifyRoute))
+	verifyServer := &http.Server{Handler: vmux, ReadHeaderTimeout: time.Second}
+
+	// create necessary parent folder for socket path
+	parentFolder := path.Dir(*socketPath)
+	if _, err := os.Stat(parentFolder); os.IsNotExist(err) {
+		err := os.MkdirAll(parentFolder, 0o755)
+		if err != nil {
+			level.Error(logger).Log("msg", "Failed to create parent folder", "err", err)
+		}
+	}
+
+	verificationOption := &network.ServerOption{
+		Server:      verifyServer,
+		WebConfig:   webConfig,
+		MetricStore: ms,
+		Logger:      logger,
+		SocketPath:  *socketPath,
+		TrustedPath: *trustedPath,
+		Interval:    time.NewTicker(*monitorInterval),
+		ErrCh:       errCh,
+	}
+	go startVerificationServer(verificationOption)
+
+	// metrics server
+	metricsRoute := route.New()
+	mmux := http.NewServeMux()
+	metricsRoute.Get(
 		path.Join(*routePrefix, *metricsPath),
 		promhttp.HandlerFor(g, promhttp.HandlerOpts{
 			ErrorLog: logFunc(level.Error(logger).Log),
 		}).ServeHTTP,
 	)
+	mmux.Handle("/", decodeRequest(metricsRoute))
+	metricServer := &http.Server{Handler: mmux, ReadHeaderTimeout: time.Second}
 
-	// Handlers for pushing and deleting metrics.
-	pushAPIPath := *routePrefix + "/metrics"
-	for _, suffix := range []string{"", handler.Base64Suffix} {
-		jobBase64Encoded := suffix == handler.Base64Suffix
-		r.Put(pushAPIPath+"/job"+suffix+"/:job/*labels", handler.Push(ms, true, !*pushUnchecked, jobBase64Encoded, logger))
-		r.Post(pushAPIPath+"/job"+suffix+"/:job/*labels", handler.Push(ms, false, !*pushUnchecked, jobBase64Encoded, logger))
-		r.Del(pushAPIPath+"/job"+suffix+"/:job/*labels", handler.Delete(ms, jobBase64Encoded, logger))
-		r.Put(pushAPIPath+"/job"+suffix+"/:job", handler.Push(ms, true, !*pushUnchecked, jobBase64Encoded, logger))
-		r.Post(pushAPIPath+"/job"+suffix+"/:job", handler.Push(ms, false, !*pushUnchecked, jobBase64Encoded, logger))
-		r.Del(pushAPIPath+"/job"+suffix+"/:job", handler.Delete(ms, jobBase64Encoded, logger))
+	metricOption := &network.ServerOption{
+		Server:      metricServer,
+		WebConfig:   webConfig,
+		MetricStore: ms,
+		Logger:      logger,
+		ErrCh:       errCh,
 	}
-	r.Get(*routePrefix+"/static/*filepath", handler.Static(asset.Assets, *routePrefix).ServeHTTP)
+	go startMetricsServer(metricOption)
 
-	statusHandler := handler.Status(ms, asset.Assets, flags, externalPathPrefix, logger)
-	r.Get(*routePrefix+"/status", statusHandler.ServeHTTP)
-	r.Get(*routePrefix+"/", statusHandler.ServeHTTP)
-
-	// Re-enable pprof.
-	r.Get(*routePrefix+"/debug/pprof/*pprof", handlePprof)
-
-	quitCh := make(chan struct{})
-	quitHandler := func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Requesting termination... Goodbye!")
-		close(quitCh)
-	}
-
-	forbiddenAPINotEnabled := func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte("Lifecycle API is not enabled."))
-	}
-
-	if *enableLifeCycle {
-		r.Put(*routePrefix+"/-/quit", quitHandler)
-		r.Post(*routePrefix+"/-/quit", quitHandler)
-	} else {
-		r.Put(*routePrefix+"/-/quit", forbiddenAPINotEnabled)
-		r.Post(*routePrefix+"/-/quit", forbiddenAPINotEnabled)
-	}
-
-	r.Get("/-/quit", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		w.Write([]byte("Only POST or PUT requests allowed."))
-	})
-
-	mux := http.NewServeMux()
-	mux.Handle("/", decodeRequest(r))
-
-	buildInfo := map[string]string{
-		"version":   version.Version,
-		"revision":  version.Revision,
-		"branch":    version.Branch,
-		"buildUser": version.BuildUser,
-		"buildDate": version.BuildDate,
-		"goVersion": version.GoVersion,
-	}
-
-	apiv1 := api_v1.New(logger, ms, flags, buildInfo)
-
-	apiPath := "/api"
-	if *routePrefix != "/" {
-		apiPath = *routePrefix + apiPath
-	}
-
-	av1 := route.New()
-	apiv1.Register(av1)
-	if *enableAdminAPI {
-		av1.Put("/admin/wipe", handler.WipeMetricStore(ms, logger).ServeHTTP)
-	}
-
-	mux.Handle(apiPath+"/v1/", http.StripPrefix(apiPath+"/v1", av1))
-
-	server := &http.Server{Handler: mux}
-
-	go shutdownServerOnQuit(server, quitCh, logger)
-	err := web.ListenAndServe(server, webConfig, logger)
-
-	// In the case of a graceful shutdown, do not log the error.
-	if err == http.ErrServerClosed {
-		level.Info(logger).Log("msg", "HTTP server stopped")
-	} else {
-		level.Error(logger).Log("msg", "HTTP server stopped", "err", err)
-	}
-
-	if err := ms.Shutdown(); err != nil {
-		level.Error(logger).Log("msg", "problem shutting down metric storage", "err", err)
+	err = shutdownServerOnQuit(*socketPath, []*network.ServerOption{verificationOption, metricOption}, ms, errCh, logger)
+	if err != nil {
+		level.Error(logger).Log("msg", "Failed to clean up the server", "err", err)
 	}
 }
 
@@ -227,19 +201,6 @@ func decodeRequest(h http.Handler) http.Handler {
 	})
 }
 
-func handlePprof(w http.ResponseWriter, r *http.Request) {
-	switch route.Param(r.Context(), "pprof") {
-	case "/cmdline":
-		pprof.Cmdline(w, r)
-	case "/profile":
-		pprof.Profile(w, r)
-	case "/symbol":
-		pprof.Symbol(w, r)
-	default:
-		pprof.Index(w, r)
-	}
-}
-
 // computeRoutePrefix returns the effective route prefix based on the
 // provided flag values for --web.route-prefix and
 // --web.external-url. With prefix empty, the path of externalURL is
@@ -263,7 +224,7 @@ func computeRoutePrefix(prefix string, externalURL *url.URL) string {
 
 // shutdownServerOnQuit shutdowns the provided server upon closing the provided
 // quitCh or upon receiving a SIGINT or SIGTERM.
-func shutdownServerOnQuit(server *http.Server, quitCh <-chan struct{}, logger log.Logger) error {
+func shutdownServerOnQuit(socketPath string, options []*network.ServerOption, ms *storage.DiskMetricStore, errCh <-chan error, logger log.Logger) error {
 	notifier := make(chan os.Signal, 1)
 	signal.Notify(notifier, os.Interrupt, syscall.SIGTERM)
 
@@ -271,9 +232,104 @@ func shutdownServerOnQuit(server *http.Server, quitCh <-chan struct{}, logger lo
 	case <-notifier:
 		level.Info(logger).Log("msg", "received SIGINT/SIGTERM; exiting gracefully...")
 		break
-	case <-quitCh:
-		level.Warn(logger).Log("msg", "received termination request via web service, exiting gracefully...")
+	case err := <-errCh:
+		level.Warn(logger).Log("msg", "received error when launching server, exiting gracefully...", "err", err)
 		break
 	}
-	return server.Shutdown(context.Background())
+
+	defer os.Remove(socketPath)
+
+	var retErr error
+	for _, option := range options {
+		err := option.Server.Shutdown(context.Background())
+		if err != nil {
+			level.Error(logger).Log("msg", "unable to shutdown the server", "err", err)
+			retErr = errors.Join(retErr, err)
+		}
+	}
+
+	err := ms.Shutdown()
+	if err != nil {
+		level.Error(logger).Log("msg", "unable to shutdown the storage service", "err", err)
+		retErr = errors.Join(retErr, err)
+	}
+	return retErr
+}
+
+// startVerificationServer starts a verification server listening the unix socket
+// it is also responsible for authentication via pid.
+func startVerificationServer(option *network.ServerOption) {
+	level.Info(option.Logger).Log("msg", "Start verification server")
+	unixListener, err := peercred.Listen(context.Background(), option.SocketPath)
+	if err != nil {
+		level.Error(option.Logger).Log("msg", "Could not create local unix socket", "err", err)
+		option.ErrCh <- err
+		return
+	}
+
+	// chmod socketPath
+	err = os.Chmod(option.SocketPath, 0o777)
+	if err != nil {
+		level.Error(option.Logger).Log("msg", "Could not chmod local unix socket", "err", err)
+		option.ErrCh <- err
+		return
+	}
+
+	listener := network.WrappedListener{
+		Listener:    unixListener,
+		TrustedPath: option.TrustedPath,
+		Option:      option,
+		ErrCh:       make(chan *network.WrappedInstance, 1),
+		DoneCh:      make(chan *network.WrappedInstance, 1),
+	}
+
+	quitCh := make(chan struct{}, 1)
+
+	go func() {
+		err = web.Serve(&listener, option.Server, option.WebConfig, option.Logger)
+		if err != nil {
+			if errors.Is(err, http.ErrServerClosed) {
+				level.Info(option.Logger).Log("msg", "Verification server stopped")
+			} else {
+				level.Error(option.Logger).Log("msg", "Verification server stopped with error", "err", err)
+				option.ErrCh <- err
+			}
+		}
+
+		quitCh <- struct{}{}
+	}()
+
+	for {
+		select {
+		case <-quitCh:
+			// stop all loop
+			return
+		case wrappedInstance := <-listener.ErrCh:
+			level.Error(option.Logger).Log("msg", "Container monitor instance receieved error", "container id", wrappedInstance.ContainerInfo.ID, "err", wrappedInstance.Err)
+			// server side closes the connection in case client side misses (in theory client will close the connection first)
+			if wrappedInstance.Conn != nil {
+				wrappedInstance.Conn.Close()
+			}
+		case wrappedInstance := <-listener.DoneCh:
+			level.Info(option.Logger).Log("msg", "Container monitor instance completed, will close the connection", "container id", wrappedInstance.ContainerInfo.ID)
+			// server side closes the connection in case client side misses (in theory client will close the connection first)
+			if wrappedInstance.Conn != nil {
+				wrappedInstance.Conn.Close()
+			}
+		}
+	}
+}
+
+// startMetricsServer starts the `/metrics` endpoints, exposing metrics
+func startMetricsServer(option *network.ServerOption) {
+	level.Info(option.Logger).Log("msg", "Start metrics server")
+	err := web.ListenAndServe(option.Server, option.WebConfig, option.Logger)
+	if err != nil {
+		if errors.Is(err, http.ErrServerClosed) {
+			level.Info(option.Logger).Log("msg", "Metrics server stopped")
+		} else {
+			level.Error(option.Logger).Log("msg", "Metrics server stopped", "err", err)
+			option.ErrCh <- err
+		}
+	}
 }
