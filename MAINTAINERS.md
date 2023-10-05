@@ -1,1 +1,1 @@
-* Björn Rabenstein <beorn@grafana.com> @beorn7
+* Jason Yang <jasonyangshadow@gmail.com> @JasonYangShadow

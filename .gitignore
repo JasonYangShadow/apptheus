@@ -1,4 +1,4 @@
-/pushgateway
+/apptheus
 /.build
 /.release
 /.tarballs
@@ -7,3 +7,4 @@
 *.exe
 *.tar.gz
 /vendor
+/testutil/main/main
