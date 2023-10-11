@@ -46,7 +46,7 @@ GET /metrics
 
 ![workflow](doc/apptainer.png)
 
-https://github.com/apptainer/apptheus/assets/2051711/b33c5f20-a030-4b91-a6a7-bc62fe1fc6b8
+https://github.com/jasonyangshadow/apptheus/assets/2051711/b33c5f20-a030-4b91-a6a7-bc62fe1fc6b8
 
 
 ## Important CLI Options
